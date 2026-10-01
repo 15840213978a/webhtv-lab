@@ -119,9 +119,22 @@ jobs:
           }
           $overlay = Join-Path $env:RUNNER_TEMP 'overlay'
           Expand-Archive -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'lab-overlay.zip') -DestinationPath $overlay -Force
+          # 上游已包含 LabAutoStart。旧覆盖层的 App.java 会抹掉新版
+          # isForeground()、生命周期计数及其他启动逻辑，必须保留上游文件。
+          $appRelativePath = 'app\src\main\java\com\fongmi\android\tv\App.java'
+          $upstreamApp = Join-Path (Join-Path $env:GITHUB_WORKSPACE 'upstream') $appRelativePath
+          $upstreamAppHash = (Get-FileHash -LiteralPath $upstreamApp -Algorithm SHA256).Hash
+          $overlayApp = Join-Path $overlay $appRelativePath
+          if (Test-Path -LiteralPath $overlayApp) {
+            Remove-Item -LiteralPath $overlayApp -Force
+          }
           robocopy $overlay (Join-Path $env:GITHUB_WORKSPACE 'upstream') /E /NFL /NDL /NJH /NJS /NP | Out-Null
           if ($LASTEXITCODE -ge 8) { throw '覆盖层复制失败' }
           $global:LASTEXITCODE = 0
+          if ((Get-FileHash -LiteralPath $upstreamApp -Algorithm SHA256).Hash -ne $upstreamAppHash) {
+            throw '覆盖层意外替换了上游 App.java'
+          }
+          Write-Host '已保留上游 App.java：前后台状态及实验室启动逻辑'
           Write-Host '覆盖层已应用'
 
       - name: 应用实验室补丁
